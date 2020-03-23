@@ -1,6 +1,9 @@
 import pytest
 
 import networkx as nx
+import random
+import time
+import numpy as np
 from networkx.utils import pairwise
 
 
@@ -277,20 +280,6 @@ class TestWeightedPath(WeightedTestBase):
         G.add_edge(9, 10)
         pytest.raises(ValueError, nx.bidirectional_dijkstra, G, 8, 10)
 
-    def test_negative_edge_cycle_fast(self):
-        G = nx.cycle_graph(5, create_using=nx.DiGraph())
-        assert nx.bellman_ford_predecessor_and_distance_early_stopping(G)
-        G.add_edge(8, 9, weight=-7)
-        G.add_edge(9, 8, weight=3)
-        graph_size = len(G)
-        pytest.raises(nx.NetworkXUnbounded, nx.bellman_ford_predecessor_and_distance_early_stopping, G, 8)
-        assert graph_size == len(G)
-        pytest.raises(ValueError, nx.single_source_dijkstra_path_length, G, 8)
-        pytest.raises(ValueError, nx.single_source_dijkstra, G, 8)
-        pytest.raises(ValueError, nx.dijkstra_predecessor_and_distance, G, 8)
-        G.add_edge(9, 10)
-        pytest.raises(ValueError, nx.bidirectional_dijkstra, G, 8, 10)
-
     def test_weight_function(self):
         """Tests that a callable weight is interpreted as a weight
         function instead of an edge attribute.
@@ -449,6 +438,55 @@ class TestBellmanFordAndGoldbergRadzik(WeightedTestBase):
         with pytest.raises(nx.NodeNotFound):
             G = nx.path_graph(2)
             nx.goldberg_radzik(G, 3, 0)
+
+    def test_negative_wight_cycle_consistency(self):
+        neg_cycles = 0
+        cyc_total_time_wh = []
+        cyc_total_time_woh = []
+        no_cyc_total_time_wh = []
+        no_cyc_total_time_woh = []
+        cyc_ratios = []
+        no_cyc_ratios = []
+        no_neg_cycles = 0
+        density = .5
+        for i in range(20, 100):
+            for j in range(3):
+                G = nx.DiGraph()
+                for k in range(1+int(density*i*(i-1))):
+                    x = random.randint(0, i)
+                    y = random.randint(0, i-1)
+                    if y >= x:
+                        y += 1
+                    if not G.has_edge(x, y):
+                        G.add_edge(x, y, weight=random.uniform(-1, 80))
+
+                woh_start = time.time()
+                without_heuristic = nx.negative_edge_cycle(G,
+                use_neg_cycle_heuristic=False)
+                woh_end = time.time()
+                wh_start = time.time()
+                with_heuristic = nx.negative_edge_cycle(G,
+                use_neg_cycle_heuristic=True)
+                wh_end = time.time()
+
+                assert without_heuristic == with_heuristic
+                if with_heuristic:
+                    cyc_total_time_wh.append(wh_end - wh_start)
+                    cyc_total_time_woh.append(woh_end - woh_start)
+                    cyc_ratios.append(cyc_total_time_wh[-1] / cyc_total_time_woh[-1])
+                    neg_cycles += 1
+                else:
+                    no_cyc_total_time_wh.append(wh_end - wh_start)
+                    no_cyc_total_time_woh.append(woh_end - woh_start)
+                    if no_cyc_total_time_woh[-1] != 0:
+                        no_cyc_ratios.append(no_cyc_total_time_wh[-1] / no_cyc_total_time_woh[-1])
+                    no_neg_cycles += 1
+
+        print()
+        print(neg_cycles)
+        print(no_neg_cycles)
+        print(np.mean(cyc_ratios), np.var(cyc_ratios))
+        print(np.mean(no_cyc_ratios), np.var(no_cyc_ratios))
 
     def test_negative_weight_cycle(self):
         G = nx.cycle_graph(5, create_using=nx.DiGraph())
